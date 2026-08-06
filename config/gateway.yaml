@@ -1,0 +1,77 @@
+# ============================================================
+# 分布式IoT设备监控与指令调度平台 — 配置文件 v2.0
+# ============================================================
+
+# ---- 节点标识 ----
+node:
+  id: "gateway-1"           # 节点唯一 ID (多节点部署时不可重复)
+  addr: "0.0.0.0"           # 对外通告地址
+
+# ---- 网关配置 ----
+gateway:
+  port: 1883                # MQTT 设备接入端口
+  thread_num: 4             # Worker 线程数 (0 = CPU 核数)
+
+# ---- HTTP API ----
+api:
+  port: 8080                # REST API 端口
+  command_timeout: 30       # 指令默认超时 (秒)
+
+# ---- Redis (分布式协调中心) ----
+redis:
+  host: "127.0.0.1"
+  port: 6379
+  password: ""              # Redis 密码 (生产环境必须设置)
+  db: 0
+
+  # Streams 配置 — 多节点消费者组
+  stream_key: "device:commands"
+  consumer_group: "gateway-group"  # 消费者组名 (所有节点共用)
+
+  # 连接池
+  pool_size: 4
+  conn_timeout_ms: 3000
+  cmd_timeout_ms: 5000
+
+# ---- InfluxDB (时序数据) ----
+influxdb:
+  host: "127.0.0.1"
+  port: 8086
+  database: "iot_devices"
+  write_timeout: 5
+
+# ---- 集群配置 ----
+cluster:
+  heartbeat_interval: 5     # 节点心跳间隔 (秒)
+  heartbeat_ttl: 15         # 心跳 TTL (秒, 超过此值判定节点离线)
+  failure_detect_interval: 10  # 故障检测间隔 (秒)
+  claim_min_idle_ms: 30000  # 认领超时消息的最小空闲时间 (毫秒)
+
+# ---- 告警配置 ----
+alert:
+  evaluation_interval: 10   # 告警评估间隔 (秒)
+  cooldown_default: 300     # 默认冷却时间 (秒)
+
+  rules:
+    - name: "device_offline_rate"
+      metric: "gateway.devices.offline"
+      condition: ">"
+      threshold: 5.0
+      level: "WARN"
+
+    - name: "high_pending_commands"
+      metric: "gateway.commands.pending"
+      condition: ">"
+      threshold: 1000
+      level: "WARN"
+
+    - name: "node_count_low"
+      metric: "cluster.nodes.online"
+      condition: "<"
+      threshold: 2
+      level: "CRITICAL"
+
+# ---- 日志 ----
+log:
+  level: "INFO"             # TRACE | DEBUG | INFO | WARN | ERROR
+  file: ""                  # 日志文件路径 (空 = stdout)

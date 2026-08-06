@@ -1,0 +1,39 @@
+﻿# Build
+build/
+cmake-build-*/
+*.o
+*.obj
+*.exe
+*.out
+*.a
+*.so
+*.dylib
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dependencies
+vendor/
+third_party/
+
+# Docker
+docker/volumes/
+
+# Logs
+*.log
+
+# Env
+.env
+.env.local
+
+# Office temp files
+~$*

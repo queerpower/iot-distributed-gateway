@@ -1,0 +1,188 @@
+# ============================================================
+# Docker Compose — 分布式IoT设备监控与指令调度平台
+#
+# 一键启动完整分布式环境:
+#   docker-compose up -d
+#
+# 组件:
+#   - Redis 7 (分布式注册表 + Streams + Pub/Sub)
+#   - InfluxDB 2 (时序数据存储)
+#   - Nginx (L4 负载均衡)
+#   - Gateway Node × 3 (MQTT 设备接入)
+#   - Dashboard (Web 管理平台)
+#
+# 访问:
+#   - 管理看板: http://localhost:9090/dashboard
+#   - API (任意节点): http://localhost:8081/api/v1/cluster
+#   - MQTT 入口: localhost:1883 (Nginx → 3 Gateway Nodes)
+# ============================================================
+version: '3.8'
+
+services:
+  # ============================================================
+  # Redis — 分布式协调中心
+  #   角色: 设备注册表 + Streams 指令队列 + Pub/Sub 路由 + 心跳
+  # ============================================================
+  redis:
+    image: redis:7-alpine
+    container_name: iot-redis
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - iot-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ============================================================
+  # InfluxDB — 时序数据库
+  #   存储设备遥测数据 (温度、湿度、状态等)
+  # ============================================================
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: iot-influxdb
+    environment:
+      - INFLUXDB_DB=iot_devices
+      - INFLUXDB_ADMIN_USER=admin
+      - INFLUXDB_ADMIN_PASSWORD=admin123
+      - INFLUXDB_HTTP_BIND_ADDRESS=:8086
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+    networks:
+      - iot-network
+    restart: unless-stopped
+
+  # ============================================================
+  # Nginx — L4 TCP 负载均衡
+  #   设备 MQTT 连接入口, 透明分发到后端网关节点
+  # ============================================================
+  nginx:
+    image: nginx:alpine
+    container_name: iot-nginx
+    volumes:
+      - ../config/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "1883:1883"    # MQTT 设备接入 (TCP Stream)
+      - "8080:8080"    # HTTP API 反向代理
+      - "9090:9090"    # Dashboard
+    networks:
+      - iot-network
+    depends_on:
+      - gateway-1
+      - gateway-2
+      - gateway-3
+    restart: unless-stopped
+
+  # ============================================================
+  # Gateway Node 1 — 设备接入节点
+  # ============================================================
+  gateway-1:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gateway
+    container_name: iot-gateway-1
+    command: >
+      --node-id gateway-1
+      --port 1883
+      --api-port 8081
+      --threads 4
+      --redis redis:6379
+      --influx influxdb:8086
+      --log-level INFO
+    ports:
+      - "8081:8081"
+    networks:
+      - iot-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ============================================================
+  # Gateway Node 2
+  # ============================================================
+  gateway-2:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gateway
+    container_name: iot-gateway-2
+    command: >
+      --node-id gateway-2
+      --port 1884
+      --api-port 8082
+      --threads 4
+      --redis redis:6379
+      --influx influxdb:8086
+      --log-level INFO
+    ports:
+      - "8082:8082"
+    networks:
+      - iot-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ============================================================
+  # Gateway Node 3
+  # ============================================================
+  gateway-3:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gateway
+    container_name: iot-gateway-3
+    command: >
+      --node-id gateway-3
+      --port 1885
+      --api-port 8083
+      --threads 4
+      --redis redis:6379
+      --influx influxdb:8086
+      --log-level INFO
+    ports:
+      - "8083:8083"
+    networks:
+      - iot-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ============================================================
+  # Dashboard — Web 管理看板
+  # ============================================================
+  dashboard:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gateway
+    container_name: iot-dashboard
+    command: >
+      --node-id dashboard
+      --port 0
+      --api-port 9090
+      --redis redis:6379
+      --dashboard-only
+    ports:
+      - "9090:9090"
+    networks:
+      - iot-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  influxdb-data:
+
+networks:
+  iot-network:
+    driver: bridge

@@ -1,0 +1,45 @@
+# ============================================================
+# Dockerfile — 分布式IoT网关节点
+#
+# 构建:
+#   docker build -t iot-gateway:latest -f docker/Dockerfile.gateway .
+#
+# 使用:
+#   docker run -d --name iot-gateway-1 \
+#     -p 1883:1883 -p 8081:8081 \
+#     iot-gateway:latest \
+#     --node-id gateway-1 --port 1883 --api-port 8081 \
+#     --redis redis:6379 --influx influxdb:8086
+# ============================================================
+
+FROM ubuntu:22.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    build-essential cmake g++ \
+    libhiredis-dev libcurl4-openssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY . .
+
+RUN mkdir -p build && cd build && \
+    cmake .. -DCMAKE_BUILD_TYPE=Release && \
+    make -j$(nproc)
+
+# ---- 运行阶段 ----
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y \
+    libhiredis0.14 libcurl4 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/build/gateway_server /usr/local/bin/
+COPY --from=builder /build/build/device_simulator /usr/local/bin/
+COPY --from=builder /build/config/gateway.yaml /etc/iot-gateway/
+
+EXPOSE 1883 8080
+
+ENTRYPOINT ["/usr/local/bin/gateway_server"]
+CMD ["--help"]
